@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
+	<string>DrKimmons adds your assignments to Calendar so you never miss a due date.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>DrKimmons adds your assignments to Calendar so you never miss a due date.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>DrKimmons creates reminders for your assignments so you stay on track.</string>
+	<key>GIDClientID</key>
+	<string>944938250562-47692gl2eod5arj792al87mfbfnb7fna.apps.googleusercontent.com</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.944938250562-47692gl2eod5arj792al87mfbfnb7fna</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>
