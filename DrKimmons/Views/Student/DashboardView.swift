@@ -1,20 +1,55 @@
 import SwiftUI
-import FirebaseFirestore
+import SwiftData
+
+// MARK: - Color hex extension (shared across all views)
+
+extension Color {
+    init(hex: String) {
+        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: hex).scanHexInt64(&int)
+        let a, r, g, b: UInt64
+        switch hex.count {
+        case 3:
+            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
+        case 6:
+            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
+        case 8:
+            (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
+        default:
+            (a, r, g, b) = (255, 0, 0, 0)
+        }
+        self.init(.sRGB,
+                  red:   Double(r) / 255,
+                  green: Double(g) / 255,
+                  blue:  Double(b) / 255,
+                  opacity: Double(a) / 255)
+    }
+}
+
+// MARK: - Dashboard
 
 struct DashboardView: View {
-    @EnvironmentObject var auth: AuthService
-    @EnvironmentObject var firestore: FirestoreService
-    @State private var upcomingAssignments: [Assignment] = []
-    @State private var enrolledCourses: [Course] = []
-    @State private var isLoading = true
+    @Query(sort: \LocalAssignment.dueDate) private var allAssignments: [LocalAssignment]
+    @Query(sort: \LocalCourse.createdAt)   private var courses: [LocalCourse]
 
     private var greeting: String {
-        let hour = Calendar.current.component(.hour, from: Date())
-        switch hour {
-        case 5..<12: return "Good morning"
+        switch Calendar.current.component(.hour, from: Date()) {
+        case 5..<12:  return "Good morning"
         case 12..<17: return "Good afternoon"
-        default: return "Good evening"
+        default:      return "Good evening"
         }
+    }
+
+    private var upcoming: [LocalAssignment] {
+        allAssignments
+            .filter { $0.dueDate >= Date() && !$0.isCompleted }
+            .prefix(5)
+            .map { $0 }
+    }
+
+    private var userName: String {
+        UserDefaults.standard.string(forKey: "user_display_name") ?? "Student"
     }
 
     var body: some View {
@@ -27,60 +62,51 @@ struct DashboardView: View {
                         Text("\(greeting),")
                             .font(.title2)
                             .foregroundColor(.secondary)
-                        Text(auth.currentUser?.displayName.components(separatedBy: " ").first ?? "Student")
+                        Text(userName.components(separatedBy: " ").first ?? userName)
                             .font(.system(size: 32, weight: .black))
                     }
                     .padding(.horizontal)
 
-                    if isLoading {
-                        ProgressView()
-                            .frame(maxWidth: .infinity, minHeight: 200)
-                    } else {
-                        // Upcoming assignments
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Upcoming")
-                                .font(.headline)
-                                .padding(.horizontal)
+                    // Upcoming assignments
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Upcoming")
+                            .font(.headline)
+                            .padding(.horizontal)
 
-                            if upcomingAssignments.isEmpty {
-                                EmptyStateCard(
-                                    icon: "checkmark.circle",
-                                    title: "All caught up!",
-                                    subtitle: "No upcoming assignments."
-                                )
+                        if upcoming.isEmpty {
+                            EmptyStateCard(icon: "checkmark.circle",
+                                           title: "All caught up!",
+                                           subtitle: "No upcoming assignments.")
                                 .padding(.horizontal)
-                            } else {
-                                ForEach(upcomingAssignments.prefix(5)) { assignment in
-                                    NavigationLink(destination: AssignmentDetailView(assignment: assignment)) {
-                                        AssignmentCard(assignment: assignment, courses: enrolledCourses)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .padding(.horizontal)
+                        } else {
+                            ForEach(upcoming) { assignment in
+                                NavigationLink(destination: AssignmentDetailView(assignment: assignment)) {
+                                    AssignmentCard(assignment: assignment)
                                 }
+                                .buttonStyle(.plain)
+                                .padding(.horizontal)
                             }
                         }
+                    }
 
-                        // My courses
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("My Courses")
-                                .font(.headline)
-                                .padding(.horizontal)
+                    // My courses
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("My Courses")
+                            .font(.headline)
+                            .padding(.horizontal)
 
-                            if enrolledCourses.isEmpty {
-                                EmptyStateCard(
-                                    icon: "books.vertical",
-                                    title: "No courses yet",
-                                    subtitle: "Browse courses to enroll."
-                                )
+                        if courses.isEmpty {
+                            EmptyStateCard(icon: "books.vertical",
+                                           title: "No courses yet",
+                                           subtitle: "Import a syllabus from the Courses tab.")
                                 .padding(.horizontal)
-                            } else {
-                                ForEach(enrolledCourses) { course in
-                                    NavigationLink(destination: StudentCourseDetailView(course: course)) {
-                                        CourseCard(course: course)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .padding(.horizontal)
+                        } else {
+                            ForEach(courses) { course in
+                                NavigationLink(destination: CourseDetailView(course: course)) {
+                                    CourseCard(course: course)
                                 }
+                                .buttonStyle(.plain)
+                                .padding(.horizontal)
                             }
                         }
                     }
@@ -89,48 +115,19 @@ struct DashboardView: View {
             }
             .navigationTitle("Study Planner")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        auth.signOut()
-                    } label: {
-                        Image(systemName: "rectangle.portrait.and.arrow.right")
-                    }
-                }
-            }
-            .task { await loadData() }
         }
-    }
-
-    private func loadData() async {
-        guard let uid = auth.currentUser?.uid else { return }
-        do {
-            async let courses = firestore.fetchEnrolledCourses(for: uid)
-            let loaded = try await courses
-            enrolledCourses = loaded
-            let ids = loaded.compactMap { $0.id }
-            upcomingAssignments = try await firestore.fetchUpcomingAssignments(for: ids)
-        } catch {
-            print("Dashboard load error:", error)
-        }
-        isLoading = false
     }
 }
 
-// MARK: - Assignment Card
+// MARK: - Shared Cards
 
 struct AssignmentCard: View {
-    let assignment: Assignment
-    let courses: [Course]
-
-    private var course: Course? {
-        courses.first { $0.id == assignment.courseId }
-    }
+    let assignment: LocalAssignment
 
     var body: some View {
         HStack(spacing: 14) {
             RoundedRectangle(cornerRadius: 4)
-                .fill(Color(hex: course?.color ?? "4361ee"))
+                .fill(Color(hex: assignment.course?.color ?? "4361ee"))
                 .frame(width: 4)
 
             VStack(alignment: .leading, spacing: 4) {
@@ -138,7 +135,7 @@ struct AssignmentCard: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(.primary)
                     .lineLimit(1)
-                Text(course?.courseCode ?? "")
+                Text(assignment.course?.courseCode ?? "")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -162,10 +159,8 @@ struct AssignmentCard: View {
     }
 }
 
-// MARK: - Course Card
-
 struct CourseCard: View {
-    let course: Course
+    let course: LocalCourse
 
     var body: some View {
         HStack(spacing: 14) {
@@ -194,8 +189,6 @@ struct CourseCard: View {
     }
 }
 
-// MARK: - Empty state
-
 struct EmptyStateCard: View {
     let icon: String
     let title: String
@@ -207,7 +200,7 @@ struct EmptyStateCard: View {
                 .font(.system(size: 32))
                 .foregroundColor(.secondary)
             Text(title).font(.headline)
-            Text(subtitle).font(.caption).foregroundColor(.secondary)
+            Text(subtitle).font(.caption).foregroundColor(.secondary).multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
         .padding(24)

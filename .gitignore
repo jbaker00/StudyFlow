@@ -24,3 +24,7 @@ DerivedData/
 
 # CocoaPods
 Pods/
+
+# Scripts
+scripts/node_modules/
+scripts/serviceAccount.json

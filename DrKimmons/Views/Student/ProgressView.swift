@@ -1,55 +1,37 @@
 import SwiftUI
+import SwiftData
 
-struct ProgressView: View {
-    @EnvironmentObject var auth: AuthService
-    @EnvironmentObject var firestore: FirestoreService
-    @State private var courses: [Course] = []
-    @State private var assignmentsByCourse: [String: [Assignment]] = [:]
-    @State private var isLoading = true
+struct StudentProgressView: View {
+    @Query(sort: \LocalCourse.createdAt) private var courses: [LocalCourse]
 
     var body: some View {
         NavigationStack {
             Group {
-                if isLoading {
-                    SwiftUI.ProgressView()
-                } else if courses.isEmpty {
+                if courses.isEmpty {
                     EmptyStateCard(
                         icon: "chart.line.uptrend.xyaxis",
-                        title: "No courses enrolled",
-                        subtitle: "Enroll in courses to track progress."
+                        title: "No courses yet",
+                        subtitle: "Import a syllabus to start tracking progress."
                     )
                     .padding()
                 } else {
                     List(courses) { course in
-                        let assignments = assignmentsByCourse[course.id ?? ""] ?? []
-                        CourseProgressRow(course: course, assignments: assignments)
+                        CourseProgressRow(course: course)
                     }
                     .listStyle(.insetGrouped)
                 }
             }
             .navigationTitle("Progress")
-            .task { await loadData() }
         }
-    }
-
-    private func loadData() async {
-        guard let uid = auth.currentUser?.uid else { return }
-        do {
-            let enrolled = try await firestore.fetchEnrolledCourses(for: uid)
-            courses = enrolled
-            for course in enrolled {
-                if let cid = course.id {
-                    assignmentsByCourse[cid] = try await firestore.fetchAssignments(for: cid)
-                }
-            }
-        } catch { print(error) }
-        isLoading = false
     }
 }
 
 struct CourseProgressRow: View {
-    let course: Course
-    let assignments: [Assignment]
+    let course: LocalCourse
+
+    private var total: Int     { course.assignments.count }
+    private var completed: Int { course.assignments.filter(\.isCompleted).count }
+    private var ratio: Double  { total > 0 ? Double(completed) / Double(total) : 0 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -59,10 +41,27 @@ struct CourseProgressRow: View {
                     .frame(width: 10, height: 10)
                 Text(course.courseCode).font(.subheadline).fontWeight(.semibold)
                 Spacer()
-                Text("\(assignments.count) assignments").font(.caption).foregroundColor(.secondary)
+                Text("\(completed)/\(total)").font(.caption).foregroundColor(.secondary)
             }
             Text(course.title).font(.caption).foregroundColor(.secondary).lineLimit(1)
+            ProgressBar(value: ratio)
         }
         .padding(.vertical, 4)
+    }
+}
+
+struct ProgressBar: View {
+    let value: Double
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 4).fill(Color(.systemGray5))
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color(hex: "4361ee"))
+                    .frame(width: geo.size.width * max(0, min(1, value)))
+            }
+        }
+        .frame(height: 8)
     }
 }

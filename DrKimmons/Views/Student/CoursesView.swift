@@ -1,57 +1,34 @@
 import SwiftUI
+import SwiftData
+import PDFKit
+import UniformTypeIdentifiers
 
 struct CoursesView: View {
-    @EnvironmentObject var auth: AuthService
-    @EnvironmentObject var firestore: FirestoreService
-    @State private var allCourses: [Course] = []
-    @State private var enrolledIds: Set<String> = []
-    @State private var isLoading = true
-
-    var enrolledCourses: [Course] { allCourses.filter { enrolledIds.contains($0.id ?? "") } }
-    var availableCourses: [Course] { allCourses.filter { !enrolledIds.contains($0.id ?? "") } }
+    @Query(sort: \LocalCourse.createdAt) private var courses: [LocalCourse]
+    @Environment(\.modelContext) private var context
+    @State private var showImport = false
 
     var body: some View {
         NavigationStack {
             Group {
-                if isLoading {
-                    ProgressView()
-                } else if allCourses.isEmpty {
+                if courses.isEmpty {
                     EmptyStateCard(
-                        icon: "books.vertical",
-                        title: "No courses available",
-                        subtitle: "Check back later."
+                        icon: "arrow.down.doc",
+                        title: "No courses yet",
+                        subtitle: "Tap + to import a syllabus and create your first course."
                     )
                     .padding()
                 } else {
                     List {
-                        if !enrolledCourses.isEmpty {
-                            Section("My Courses") {
-                                ForEach(enrolledCourses) { course in
-                                    NavigationLink(destination: StudentCourseDetailView(course: course)) {
-                                        CourseRow(course: course)
-                                    }
-                                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                        Button(role: .destructive) {
-                                            Task { await toggleEnroll(course) }
-                                        } label: {
-                                            Label("Drop", systemImage: "minus.circle")
-                                        }
-                                    }
-                                }
+                        ForEach(courses) { course in
+                            NavigationLink(destination: CourseDetailView(course: course)) {
+                                CourseRow(course: course)
                             }
-                        }
-                        if !availableCourses.isEmpty {
-                            Section("Available Courses") {
-                                ForEach(availableCourses) { course in
-                                    CourseRow(course: course)
-                                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                                            Button {
-                                                Task { await toggleEnroll(course) }
-                                            } label: {
-                                                Label("Enroll", systemImage: "plus.circle")
-                                            }
-                                            .tint(Color(hex: "4361ee"))
-                                        }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    context.delete(course)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
                                 }
                             }
                         }
@@ -60,38 +37,24 @@ struct CoursesView: View {
                 }
             }
             .navigationTitle("Courses")
-            .task { await loadData() }
-        }
-    }
-
-    private func loadData() async {
-        guard let uid = auth.currentUser?.uid else { return }
-        do {
-            async let all = firestore.fetchAllCourses()
-            async let enrolled = firestore.fetchEnrolledCourses(for: uid)
-            let (a, e) = try await (all, enrolled)
-            allCourses = a
-            enrolledIds = Set(e.compactMap { $0.id })
-        } catch { print(error) }
-        isLoading = false
-    }
-
-    private func toggleEnroll(_ course: Course) async {
-        guard let uid = auth.currentUser?.uid, let cid = course.id else { return }
-        do {
-            if enrolledIds.contains(cid) {
-                try await firestore.unenrollFromCourse(userId: uid, courseId: cid)
-                enrolledIds.remove(cid)
-            } else {
-                try await firestore.enrollInCourse(userId: uid, courseId: cid)
-                enrolledIds.insert(cid)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button { showImport = true } label: {
+                        Image(systemName: "plus")
+                    }
+                }
             }
-        } catch { print(error) }
+            .sheet(isPresented: $showImport) {
+                SyllabusImportView()
+            }
+        }
     }
 }
 
+// MARK: - Course Row
+
 struct CourseRow: View {
-    let course: Course
+    let course: LocalCourse
 
     var body: some View {
         HStack(spacing: 14) {
@@ -115,73 +78,83 @@ struct CourseRow: View {
     }
 }
 
-// MARK: - Student Course Detail
+// MARK: - Course Detail
 
-struct StudentCourseDetailView: View {
-    let course: Course
-    @EnvironmentObject var firestore: FirestoreService
-    @State private var assignments: [Assignment] = []
-    @State private var isLoading = true
+struct CourseDetailView: View {
+    let course: LocalCourse
+    @Environment(\.modelContext) private var context
+    @State private var showAddAssignment = false
 
-    var upcomingAssignments: [Assignment] {
-        assignments.filter { $0.daysUntilDue >= 0 }
+    private var upcoming: [LocalAssignment] {
+        course.assignments
+            .filter { $0.dueDate >= Date() }
+            .sorted { $0.dueDate < $1.dueDate }
     }
-    var pastAssignments: [Assignment] {
-        assignments.filter { $0.daysUntilDue < 0 }
+
+    private var past: [LocalAssignment] {
+        course.assignments
+            .filter { $0.dueDate < Date() }
+            .sorted { $0.dueDate > $1.dueDate }
     }
 
     var body: some View {
         List {
             Section {
-                if let times = course.meetingTimes {
-                    LabeledContent("Schedule", value: times)
-                }
-                if let loc = course.location {
-                    LabeledContent("Location", value: loc)
-                }
-                LabeledContent("Term", value: course.term)
+                LabeledContent("Term",      value: course.term)
                 LabeledContent("Professor", value: course.professorName)
+                if let times = course.meetingTimes { LabeledContent("Schedule", value: times) }
+                if let loc   = course.location      { LabeledContent("Location", value: loc)   }
+                if !course.courseDescription.isEmpty {
+                    Text(course.courseDescription)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
 
-            if isLoading {
-                Section { SwiftUI.ProgressView() }
-            } else {
-                if !upcomingAssignments.isEmpty {
-                    Section("Upcoming (\(upcomingAssignments.count))") {
-                        ForEach(upcomingAssignments) { a in
-                            NavigationLink(destination: AssignmentDetailView(assignment: a)) {
-                                AssignmentListRow(assignment: a, courseColor: course.color)
-                            }
+            if !upcoming.isEmpty {
+                Section("Upcoming (\(upcoming.count))") {
+                    ForEach(upcoming) { a in
+                        NavigationLink(destination: AssignmentDetailView(assignment: a)) {
+                            AssignmentListRow(assignment: a, courseColor: course.color)
                         }
                     }
                 }
-                if !pastAssignments.isEmpty {
-                    Section("Past (\(pastAssignments.count))") {
-                        ForEach(pastAssignments) { a in
-                            NavigationLink(destination: AssignmentDetailView(assignment: a)) {
-                                AssignmentListRow(assignment: a, courseColor: course.color)
-                            }
+            }
+
+            if !past.isEmpty {
+                Section("Past (\(past.count))") {
+                    ForEach(past) { a in
+                        NavigationLink(destination: AssignmentDetailView(assignment: a)) {
+                            AssignmentListRow(assignment: a, courseColor: course.color)
                         }
                     }
                 }
-                if assignments.isEmpty {
-                    Section { Text("No assignments yet.").foregroundColor(.secondary) }
-                }
+            }
+
+            if course.assignments.isEmpty {
+                Section { Text("No assignments yet.").foregroundColor(.secondary) }
             }
         }
         .listStyle(.insetGrouped)
         .navigationTitle(course.courseCode)
         .navigationBarTitleDisplayMode(.large)
-        .task {
-            guard let cid = course.id else { return }
-            assignments = (try? await firestore.fetchAssignments(for: cid)) ?? []
-            isLoading = false
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button { showAddAssignment = true } label: {
+                    Image(systemName: "plus")
+                }
+            }
+        }
+        .sheet(isPresented: $showAddAssignment) {
+            AddAssignmentView(course: course)
         }
     }
 }
 
+// MARK: - Assignment List Row
+
 struct AssignmentListRow: View {
-    let assignment: Assignment
+    let assignment: LocalAssignment
     let courseColor: String
 
     var body: some View {
@@ -189,12 +162,21 @@ struct AssignmentListRow: View {
             RoundedRectangle(cornerRadius: 3)
                 .fill(Color(hex: courseColor))
                 .frame(width: 3, height: 38)
+
             VStack(alignment: .leading, spacing: 3) {
-                Text(assignment.title)
-                    .font(.system(size: 14, weight: .semibold))
-                    .lineLimit(2)
+                HStack {
+                    Text(assignment.title)
+                        .font(.system(size: 14, weight: .semibold))
+                        .lineLimit(2)
+                        .strikethrough(assignment.isCompleted)
+                    if assignment.isCompleted {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                            .font(.caption)
+                    }
+                }
                 HStack(spacing: 6) {
-                    Text(assignment.type.rawValue.capitalized)
+                    Text(assignment.type.capitalized)
                         .font(.caption2)
                         .padding(.horizontal, 5).padding(.vertical, 2)
                         .background(Color(hex: courseColor).opacity(0.15))
@@ -202,14 +184,75 @@ struct AssignmentListRow: View {
                         .cornerRadius(4)
                     Text(assignment.dueDateFormatted)
                         .font(.caption)
-                        .foregroundColor(assignment.daysUntilDue < 3 && assignment.daysUntilDue >= 0 ? .red : .secondary)
+                        .foregroundColor(
+                            assignment.daysUntilDue < 3 && assignment.daysUntilDue >= 0
+                                ? .red : .secondary
+                        )
                 }
             }
+
             Spacer()
             Text("\(assignment.totalPoints)pt")
                 .font(.caption2)
                 .foregroundColor(.secondary)
         }
         .padding(.vertical, 4)
+    }
+}
+
+// MARK: - Add Assignment (manual entry)
+
+struct AddAssignmentView: View {
+    let course: LocalCourse
+    @Environment(\.modelContext) private var context
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var title = ""
+    @State private var description = ""
+    @State private var selectedType = "homework"
+    @State private var dueDate = Date().addingTimeInterval(7 * 86400)
+    @State private var totalPoints = "10"
+
+    private let types = ["homework","reading","essay","quiz","exam",
+                         "project","presentation","response","custom"]
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Assignment Info") {
+                    TextField("Title", text: $title)
+                    TextField("Description", text: $description, axis: .vertical)
+                        .lineLimit(2...5)
+                }
+                Section("Details") {
+                    Picker("Type", selection: $selectedType) {
+                        ForEach(types, id: \.self) { Text($0.capitalized) }
+                    }
+                    DatePicker("Due Date", selection: $dueDate, displayedComponents: .date)
+                    TextField("Points", text: $totalPoints).keyboardType(.numberPad)
+                }
+            }
+            .navigationTitle("New Assignment")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Add") { save() }.disabled(title.isEmpty)
+                }
+            }
+        }
+    }
+
+    private func save() {
+        let a = LocalAssignment(
+            title: title,
+            description: description,
+            dueDate: dueDate,
+            type: selectedType,
+            totalPoints: Int(totalPoints) ?? 10,
+            course: course
+        )
+        context.insert(a)
+        dismiss()
     }
 }
