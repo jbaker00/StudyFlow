@@ -25,7 +25,7 @@ struct LoginView: View {
                     Text("Study Planner")
                         .font(.system(size: 28, weight: .black))
                         .foregroundColor(.white)
-                    Text("Dr. Baker-Kimmons · Chicago State University")
+                    Text("Your personal study planner")
                         .font(.subheadline)
                         .foregroundColor(.white.opacity(0.6))
                         .multilineTextAlignment(.center)

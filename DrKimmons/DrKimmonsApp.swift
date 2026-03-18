@@ -2,7 +2,7 @@ import SwiftUI
 import SwiftData
 
 @main
-struct DrKimmonsApp: App {
+struct StudyFlowApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()

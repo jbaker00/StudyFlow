@@ -95,7 +95,7 @@
 				6E996B812F67157400C19DA8 /* FirebaseCore */,
 				6E996BA42F6800B000C19DA8 /* GoogleMobileAds */,
 			);
-			productName = DrKimmons;
+			productName = StudyFlow;
 			productReference = 6E996B242F6710D500C19DA8 /* StudyFlow.app */;
 			productType = "com.apple.product-type.application";
 		};
