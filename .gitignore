@@ -28,3 +28,6 @@ Pods/
 # Scripts
 scripts/node_modules/
 scripts/serviceAccount.json
+
+# Course documents
+*.docx
