@@ -19,9 +19,22 @@
 		6E996B242F6710D500C19DA8 /* StudyFlow.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = StudyFlow.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		6E996BC02F68FFAA00C19DA8 /* Exceptions for "StudyFlow" folder in "StudyFlow" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 6E996B232F6710D500C19DA8 /* StudyFlow */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		6E996B262F6710D500C19DA8 /* StudyFlow */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				6E996BC02F68FFAA00C19DA8 /* Exceptions for "StudyFlow" folder in "StudyFlow" target */,
+			);
 			path = StudyFlow;
 			sourceTree = "<group>";
 		};
